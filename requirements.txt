@@ -1,2 +1,4 @@
 Pillow>=10.0.0
 Gooey>=1.0.8
+six>=1.16.0
+wxPython>=4.2.0
