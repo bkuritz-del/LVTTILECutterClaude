@@ -792,28 +792,28 @@ def main() -> None:
         gooey_options={"columns": 3},
     )
     for spec in ALL_TILE_SPECS:
-        # Use widget=CheckBox explicitly so Gooey renders a real checkbox.
-        # The --no-X counterpart is invisible but required so that unchecking
-        # the box actually stores False instead of falling back to default=True.
+        # Gooey checkboxes with action=store_true cannot reliably return False
+        # when default=True because unchecking just omits the flag and argparse
+        # falls back to the default.
+        # Fix: use action="store" with nargs="?" const/default pattern so
+        # Gooey writes the string "true" or "false" explicitly into the arg,
+        # which we then compare as a string below.
         tile_group.add_argument(
             f"--{spec.flag}",
             dest=spec.flag,
-            action="store_true",
-            default=True,
+            metavar=spec.label,
+            action="store",
+            default="true",
             widget="CheckBox",
             help=" ",
             gooey_options={"label": spec.label},
         )
-        parser.set_defaults(**{spec.flag: True})
 
     args = parser.parse_args()
 
-    # Gooey stores False in dest when checkbox is unticked (via store_true
-    # returning the default=True only when not passed at all — but Gooey
-    # explicitly passes --flag when checked and omits it when unchecked,
-    # so getattr correctly returns True/False).
     selected_specs = [
-        spec for spec in ALL_TILE_SPECS if getattr(args, spec.flag, False)
+        spec for spec in ALL_TILE_SPECS
+        if str(getattr(args, spec.flag, "false")).lower() not in ("false", "0", "", "none")
     ]
     if not selected_specs:
         print("ERROR: No tile sizes selected. Please check at least one size and try again.")
