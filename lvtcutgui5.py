@@ -786,35 +786,34 @@ def main() -> None:
     )
 
     # ── Tile sizes ────────────────────────────────────────────────────────────
+    # Gooey checkboxes with default=True are broken: unchecking just omits the
+    # flag and argparse falls back to default=True. The only reliable approach
+    # is a Listbox (multi-select) widget — the user holds Ctrl/Shift to select
+    # multiple sizes, and only the selected items are processed.
+    # All sizes are selected by default.
     tile_group = parser.add_argument_group(
         "Tile Sizes",
-        "Check the sizes you want to generate",
-        gooey_options={"columns": 3},
+        "Select the sizes to generate (Ctrl+click to select multiple, Ctrl+A for all)",
     )
-    for spec in ALL_TILE_SPECS:
-        # Gooey checkboxes with action=store_true cannot reliably return False
-        # when default=True because unchecking just omits the flag and argparse
-        # falls back to the default.
-        # Fix: use action="store" with nargs="?" const/default pattern so
-        # Gooey writes the string "true" or "false" explicitly into the arg,
-        # which we then compare as a string below.
-        tile_group.add_argument(
-            f"--{spec.flag}",
-            dest=spec.flag,
-            metavar=spec.label,
-            action="store",
-            default="true",
-            widget="CheckBox",
-            help=" ",
-            gooey_options={"label": spec.label},
-        )
+    all_labels = [spec.label for spec in ALL_TILE_SPECS]
+    tile_group.add_argument(
+        "--tile_sizes",
+        widget="Listbox",
+        nargs="+",
+        choices=all_labels,
+        default=all_labels,
+        help=" ",
+        gooey_options={
+            "height": 220,
+            "full_width": True,
+        },
+    )
 
     args = parser.parse_args()
 
-    selected_specs = [
-        spec for spec in ALL_TILE_SPECS
-        if str(getattr(args, spec.flag, "false")).lower() not in ("false", "0", "", "none")
-    ]
+    # Map selected labels back to TileSpec objects
+    selected_labels = set(args.tile_sizes) if args.tile_sizes else set()
+    selected_specs = [s for s in ALL_TILE_SPECS if s.label in selected_labels]
     if not selected_specs:
         print("ERROR: No tile sizes selected. Please check at least one size and try again.")
         sys.exit(1)
