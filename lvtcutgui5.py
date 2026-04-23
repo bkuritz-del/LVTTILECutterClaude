@@ -317,14 +317,13 @@ def ensure_srgb(img: Image.Image) -> Tuple[Image.Image, dict]:
             if img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGB")
 
-      icc_kwargs: dict = {}
+        icc_kwargs: dict = {}
         try:
-            # Pillow 9+: profile bytes live on the profile's profile attribute
             profile_obj = dst_profile.profile
             icc_bytes = (
-                profile_obj.tobytes()      # littlecms2 object method
+                profile_obj.tobytes()
                 if hasattr(profile_obj, "tobytes")
-                else bytes(profile_obj)    # fallback
+                else bytes(profile_obj)
             )
             if icc_bytes:
                 icc_kwargs["icc_profile"] = icc_bytes
@@ -337,7 +336,6 @@ def ensure_srgb(img: Image.Image) -> Tuple[Image.Image, dict]:
         log.warning("  ensure_srgb failed (%s); falling back to plain RGB.", exc)
         fallback = img.convert("RGB") if img.mode not in ("RGB", "RGBA") else img
         return fallback, {}
-
 
 def make_tile(im: Image.Image, col: int, row: int, tile_w: int, tile_h: int) -> Image.Image:
     """Crop one tile; rotate to landscape if non-square and portrait-oriented."""
