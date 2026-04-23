@@ -42,6 +42,11 @@ jobs:
             --windowed `
             --name "LVTTileCutter" `
             --collect-data gooey `
+            --hidden-import six `
+            --hidden-import PIL `
+            --hidden-import PIL.Image `
+            --hidden-import PIL.ImageCms `
+            --hidden-import wx `
             lvtcutgui5.py
 
       # ── 5. Confirm the build produced a file ─────────────────────────────
