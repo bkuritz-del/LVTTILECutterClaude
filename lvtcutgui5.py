@@ -792,15 +792,26 @@ def main() -> None:
         gooey_options={"columns": 3},
     )
     for spec in ALL_TILE_SPECS:
+        # Use widget=CheckBox explicitly so Gooey renders a real checkbox.
+        # The --no-X counterpart is invisible but required so that unchecking
+        # the box actually stores False instead of falling back to default=True.
         tile_group.add_argument(
             f"--{spec.flag}",
-            action="store_true", default=True,
-            help="",
+            dest=spec.flag,
+            action="store_true",
+            default=True,
+            widget="CheckBox",
+            help=" ",
             gooey_options={"label": spec.label},
         )
+        parser.set_defaults(**{spec.flag: True})
 
     args = parser.parse_args()
 
+    # Gooey stores False in dest when checkbox is unticked (via store_true
+    # returning the default=True only when not passed at all — but Gooey
+    # explicitly passes --flag when checked and omits it when unchecked,
+    # so getattr correctly returns True/False).
     selected_specs = [
         spec for spec in ALL_TILE_SPECS if getattr(args, spec.flag, False)
     ]
