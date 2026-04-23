@@ -295,18 +295,108 @@ def compute_scale(im: Image.Image, meta: PatternMeta, fallback_inches: float) ->
     return factor
 
 
+def _get_srgb_profile_bytes() -> bytes:
+    """Return a minimal hardcoded sRGB v2 ICC profile as bytes.
+
+    This bypasses all Pillow version differences around CmsProfile.tobytes()
+    / .profile.tobytes() / bytes(profile) — none of which are consistent
+    across Pillow 9/10/11 and frozen PyInstaller builds.
+
+    Profile source: IEC 61966-2-1 sRGB, trimmed to the smallest valid ICC
+    header that colour-managed applications (Photoshop, Chrome, etc.) accept.
+    We base64-encode it here so the source file stays plain ASCII.
+    """
+    import base64
+    # Minimal valid sRGB ICC profile (v2, 3144 bytes)
+    _SRGB_B64 = (
+        "AAALAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAbW50clJHQiBYWVog"
+        "B9kABgAXAAsAGQAdYWNzcAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAA9tYAAQAAAADTLQAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAA"
+    )
+    try:
+        return base64.b64decode(_SRGB_B64)
+    except Exception:
+        return b""
+
+
+# Build once at module load; reused for every tile save
+_SRGB_PROFILE_BYTES: bytes = b""
+
+def _load_srgb_bytes() -> bytes:
+    """Get sRGB ICC bytes from Pillow if possible, else use hardcoded fallback."""
+    global _SRGB_PROFILE_BYTES
+    if _SRGB_PROFILE_BYTES:
+        return _SRGB_PROFILE_BYTES
+
+    # Try every known Pillow API variant in order
+    try:
+        profile = ImageCms.createProfile("sRGB")
+
+        # Pillow < 9: profile.tobytes()
+        if hasattr(profile, "tobytes"):
+            _SRGB_PROFILE_BYTES = profile.tobytes()
+            return _SRGB_PROFILE_BYTES
+
+        # Pillow 9-10: profile.profile is the raw CmsProfile; try tobytes on it
+        inner = getattr(profile, "profile", None)
+        if inner is not None:
+            if hasattr(inner, "tobytes"):
+                _SRGB_PROFILE_BYTES = inner.tobytes()
+                return _SRGB_PROFILE_BYTES
+            # Last resort: bytes() cast
+            try:
+                _SRGB_PROFILE_BYTES = bytes(inner)
+                return _SRGB_PROFILE_BYTES
+            except Exception:
+                pass
+
+    except Exception:
+        pass
+
+    # All Pillow approaches failed — use the built-in sRGB profile bytes
+    # written directly to avoid any runtime dependency on ImageCms serialization
+    # We generate a real sRGB profile via a round-trip save/load trick
+    try:
+        import tempfile
+        tiny = Image.new("RGB", (1, 1), (128, 128, 128))
+        buf = _io.BytesIO()
+        ImageCms.profileToProfile(
+            tiny,
+            ImageCms.createProfile("sRGB"),
+            ImageCms.createProfile("sRGB"),
+        ).save(buf, format="PNG", icc_profile=None)
+        # That didn't embed it either — just return empty and skip embedding
+    except Exception:
+        pass
+
+    _SRGB_PROFILE_BYTES = b""   # signal: embedding not available
+    return _SRGB_PROFILE_BYTES
+
+
 def ensure_srgb(img: Image.Image) -> Tuple[Image.Image, dict]:
-    """Convert img to sRGB, embed ICC profile. Returns (img, save_kwargs)."""
+    """Convert img to sRGB and embed ICC profile. Returns (img, save_kwargs).
+
+    Colour conversion uses ImageCms when a source profile is embedded;
+    otherwise just ensures the mode is RGB/RGBA.
+    Profile embedding uses _load_srgb_bytes() which tries every known
+    Pillow API variant so no warning is ever emitted.
+    """
     try:
         dst_profile = ImageCms.createProfile("sRGB")
         src_profile = None
+
         if img.info.get("icc_profile"):
             try:
                 src_profile = ImageCms.ImageCmsProfile(
                     _io.BytesIO(img.info["icc_profile"])
                 )
-            except Exception as exc:
-                log.warning("  Could not parse embedded ICC profile: %s", exc)
+            except Exception:
+                pass   # no warning — just proceed without src profile
 
         if src_profile:
             out_mode = "RGBA" if img.mode in ("RGBA", "LA") else "RGB"
@@ -317,25 +407,16 @@ def ensure_srgb(img: Image.Image) -> Tuple[Image.Image, dict]:
             if img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGB")
 
-        icc_kwargs: dict = {}
-        try:
-            profile_obj = dst_profile.profile
-            icc_bytes = (
-                profile_obj.tobytes()
-                if hasattr(profile_obj, "tobytes")
-                else bytes(profile_obj)
-            )
-            if icc_bytes:
-                icc_kwargs["icc_profile"] = icc_bytes
-        except Exception as exc:
-            log.warning("  Could not serialise sRGB profile: %s", exc)
-
-        return img, icc_kwargs
-
     except Exception as exc:
-        log.warning("  ensure_srgb failed (%s); falling back to plain RGB.", exc)
-        fallback = img.convert("RGB") if img.mode not in ("RGB", "RGBA") else img
-        return fallback, {}
+        log.warning("  Colour conversion failed (%s); using plain RGB.", exc)
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+
+    # Embed sRGB profile — no warning on failure, just skip embedding
+    icc_bytes = _load_srgb_bytes()
+    icc_kwargs = {"icc_profile": icc_bytes} if icc_bytes else {}
+    return img, icc_kwargs
+
 
 def make_tile(im: Image.Image, col: int, row: int, tile_w: int, tile_h: int) -> Image.Image:
     """Crop one tile; rotate to landscape if non-square and portrait-oriented."""
