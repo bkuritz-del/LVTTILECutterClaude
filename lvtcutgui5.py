@@ -317,9 +317,15 @@ def ensure_srgb(img: Image.Image) -> Tuple[Image.Image, dict]:
             if img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGB")
 
-        icc_kwargs: dict = {}
+      icc_kwargs: dict = {}
         try:
-            icc_bytes = dst_profile.tobytes()
+            # Pillow 9+: profile bytes live on the profile's profile attribute
+            profile_obj = dst_profile.profile
+            icc_bytes = (
+                profile_obj.tobytes()      # littlecms2 object method
+                if hasattr(profile_obj, "tobytes")
+                else bytes(profile_obj)    # fallback
+            )
             if icc_bytes:
                 icc_kwargs["icc_profile"] = icc_bytes
         except Exception as exc:
