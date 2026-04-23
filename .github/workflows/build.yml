@@ -1,0 +1,75 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'          # also fires on version tags like v5.0.0
+  workflow_dispatch:  # allows manual trigger from GitHub Actions tab
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      # ── 1. Check out the repo ─────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ──────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # Gooey is well-tested on 3.11
+
+      # ── 3. Install dependencies ───────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # ── 4. Build the EXE with PyInstaller ─────────────────────────────────
+      # --onefile        : single portable .exe, no folder of DLLs
+      # --windowed       : no black console window behind the Gooey GUI
+      # --name           : what the .exe will be called
+      # Gooey needs its own image/icon assets collected at runtime;
+      # the --collect-data flag ensures they are bundled into the exe.
+      - name: Build EXE
+        run: |
+          pyinstaller `
+            --onefile `
+            --windowed `
+            --name "LVTTileCutter" `
+            --collect-data gooey `
+            lvtcutgui5.py
+
+      # ── 5. Confirm the build produced a file ─────────────────────────────
+      - name: Verify build output
+        run: |
+          if (!(Test-Path "dist\LVTTileCutter.exe")) {
+            Write-Error "EXE not found — build failed"
+            exit 1
+          }
+          Write-Host "Build OK: dist\LVTTileCutter.exe"
+          Get-Item "dist\LVTTileCutter.exe" | Select-Object Name, Length, LastWriteTime
+
+      # ── 6. Upload the EXE as a downloadable artifact ─────────────────────
+      # Available in the Actions tab → your run → Artifacts section
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LVTTileCutter-windows
+          path: dist\LVTTileCutter.exe
+          retention-days: 30    # artifact stays for 30 days
+
+      # ── 7. (Optional) Attach EXE to a GitHub Release ─────────────────────
+      # Only runs when you push a tag like v5.0.0
+      # Creates a Release page with the EXE attached for direct download
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist\LVTTileCutter.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
