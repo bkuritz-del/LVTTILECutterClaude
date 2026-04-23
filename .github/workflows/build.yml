@@ -7,6 +7,9 @@ on:
       - 'v*'          # also fires on version tags like v5.0.0
   workflow_dispatch:  # allows manual trigger from GitHub Actions tab
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # opt into Node.js 24 now
+
 jobs:
   build:
     runs-on: windows-latest
@@ -14,13 +17,13 @@ jobs:
     steps:
       # ── 1. Check out the repo ─────────────────────────────────────────────
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       # ── 2. Set up Python ──────────────────────────────────────────────────
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.4.0
         with:
-          python-version: "3.11"   # Gooey is well-tested on 3.11
+          python-version: "3.11"
 
       # ── 3. Install dependencies ───────────────────────────────────────────
       - name: Install dependencies
@@ -30,11 +33,6 @@ jobs:
           pip install pyinstaller
 
       # ── 4. Build the EXE with PyInstaller ─────────────────────────────────
-      # --onefile        : single portable .exe, no folder of DLLs
-      # --windowed       : no black console window behind the Gooey GUI
-      # --name           : what the .exe will be called
-      # Gooey needs its own image/icon assets collected at runtime;
-      # the --collect-data flag ensures they are bundled into the exe.
       - name: Build EXE
         run: |
           pyinstaller `
@@ -60,20 +58,17 @@ jobs:
           Get-Item "dist\LVTTileCutter.exe" | Select-Object Name, Length, LastWriteTime
 
       # ── 6. Upload the EXE as a downloadable artifact ─────────────────────
-      # Available in the Actions tab → your run → Artifacts section
       - name: Upload EXE artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: LVTTileCutter-windows
           path: dist\LVTTileCutter.exe
-          retention-days: 30    # artifact stays for 30 days
+          retention-days: 30
 
-      # ── 7. (Optional) Attach EXE to a GitHub Release ─────────────────────
-      # Only runs when you push a tag like v5.0.0
-      # Creates a Release page with the EXE attached for direct download
+      # ── 7. Attach EXE to a GitHub Release (tag pushes only) ──────────────
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.2.1
         with:
           files: dist\LVTTileCutter.exe
         env:
